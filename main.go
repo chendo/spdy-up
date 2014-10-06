@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/SlyMarbo/spdy"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -26,14 +25,22 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	rw.WriteHeader(resp.StatusCode)
 	for k, vs := range resp.Header {
 		for _, v := range vs {
 			rw.Header().Add(k, v)
 		}
 	}
-	rw.WriteHeader(resp.StatusCode)
-	body, _ := ioutil.ReadAll(resp.Body)
-	rw.Write(body)
+
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if err != nil {
+			resp.Body.Close()
+			break
+		}
+		rw.Write(buf[:n])
+	}
 	log.Printf("%4s %s: %fms\n", req.Method, req.URL.String(), time.Now().Sub(start).Seconds()*1000)
 }
 
