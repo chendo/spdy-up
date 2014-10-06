@@ -47,10 +47,17 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 func main() {
 	flag.StringVar(&domain, "domain", "", "domain to proxy")
 	bind := flag.String("bind", ":44300", "bind to")
+	cert := flag.String("cert", "server.crt", "ssl certificate")
+	key := flag.String("key", "server.key", "ssl key")
 	flag.Parse()
+
+	if len(domain) == 0 {
+		log.Fatal("You must supply a domain with -domain=<domain>")
+	}
+
 	http.HandleFunc("/", handler)
 	log.Printf("Proxing to %s on %s", domain, *bind)
-	err := spdy.ListenAndServeTLS(*bind, "server.crt", "server.key", nil)
+	err := spdy.ListenAndServeTLS(*bind, *cert, *key, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
