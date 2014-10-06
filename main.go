@@ -44,6 +44,18 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	log.Printf("%4s %s: %fms\n", req.Method, req.URL.String(), time.Now().Sub(start).Seconds()*1000)
 }
 
+func ping() {
+	ping, err := spdy.PingServer(*http.DefaultClient, fmt.Sprintf("https://%s", domain))
+	if err != nil {
+		log.Printf("Error pinging: %s", err)
+	} else {
+		_, ok := <-ping
+		if ok {
+			log.Printf("Ping OK.")
+		}
+	}
+}
+
 func main() {
 	flag.StringVar(&domain, "domain", "", "domain to proxy")
 	bind := flag.String("bind", ":44300", "bind to")
@@ -57,6 +69,14 @@ func main() {
 
 	http.HandleFunc("/", handler)
 	log.Printf("Proxing to %s on %s", domain, *bind)
+
+	pingTicker := time.NewTicker(time.Second * 60)
+	go func() {
+		for _ = range pingTicker.C {
+			ping()
+		}
+	}()
+
 	err := spdy.ListenAndServeTLS(*bind, *cert, *key, nil)
 	if err != nil {
 		log.Fatal(err)
