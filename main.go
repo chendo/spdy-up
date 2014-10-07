@@ -102,7 +102,8 @@ func ping() {
 }
 
 func main() {
-	bind := flag.String("bind", ":44300", "bind to")
+	bind := flag.String("bind", ":8000", "bind address for http")
+	sslbind := flag.String("sslbind", ":44300", "bind address for https")
 	cert := flag.String("cert", "server.crt", "ssl certificate")
 	key := flag.String("key", "server.key", "ssl key")
 	keepalive := flag.Bool("keepalive", true, "use pings to keep the spdy clients alive")
@@ -135,11 +136,24 @@ func main() {
 			}
 		}()
 	}
-
-	log.Printf("Listening on %s", *bind)
-
-	err := spdy.ListenAndServeTLS(*bind, *cert, *key, nil)
-	if err != nil {
-		log.Fatal(err)
+	if *bind != "" {
+		log.Printf("Listening to HTTP on %s", *bind)
+		go func() {
+			err := http.ListenAndServe(*bind, nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}()
 	}
+
+	if *sslbind != "" {
+		log.Printf("Listening to HTTPS on %s", *sslbind)
+		go func() {
+			err := spdy.ListenAndServeTLS(*sslbind, *cert, *key, nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}()
+	}
+	select {}
 }
