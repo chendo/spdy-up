@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/SlyMarbo/spdy"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -56,11 +57,14 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 			break
 		}
 	}
+
 	if err != nil {
 		rw.WriteHeader(500)
 		rw.Write([]byte("Could not reach origin"))
 		return
 	}
+
+	defer resp.Body.Close()
 
 	rw.WriteHeader(resp.StatusCode)
 	for k, vs := range resp.Header {
@@ -69,15 +73,7 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	buf := make([]byte, 1024)
-	for {
-		n, err := resp.Body.Read(buf)
-		if err != nil {
-			resp.Body.Close()
-			break
-		}
-		rw.Write(buf[:n])
-	}
+	io.Copy(rw, resp.Body)
 	log.Printf("%5s %s%s: %.3fms\n", req.Method, domain, originalURL.String(), time.Now().Sub(start).Seconds()*1000)
 }
 
