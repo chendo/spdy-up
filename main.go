@@ -15,24 +15,28 @@ import (
 type Proxy struct {
 	Domain     string
 	OriginHost string
-	Client     *http.Client
 }
 
 var (
 	proxies map[string]*Proxy
+	client  *http.Client
 )
 
 func handler(rw http.ResponseWriter, req *http.Request) {
 	proxy, ok := proxies[req.Host]
+	domain := proxy.Domain
+	originalURL := req.URL
+	s := strings.SplitN(req.RemoteAddr, ":", 2)
+	remoteIP := s[0]
+
+	log.Printf("%15s %5s %s%s: Start\n", remoteIP, req.Method, domain, originalURL.String())
 	if !ok {
 		// No proxy mapping
 		rw.WriteHeader(400)
 		rw.Write([]byte("Bad Request"))
+		log.Printf("%15s %5s %s%s: Error: Invalid domain", remoteIP, req.Method, domain, originalURL.String())
 		return
 	}
-
-	domain := proxy.Domain
-	originalURL := req.URL
 
 	req.URL, _ = url.Parse(fmt.Sprintf("https://%s%s", proxy.OriginHost, req.RequestURI))
 	req.RequestURI = "" // http.Client requests cannot have RequestURI
@@ -44,15 +48,9 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 		resp *http.Response
 	)
 	for tries := 0; tries < 2; tries++ {
-		client := proxy.Client
-		if client == nil {
-			client = spdy.NewClient(false)
-			proxy.Client = client
-		}
 		resp, err = client.Do(req)
 		if err != nil {
-			log.Printf("%5s %s%s: Error: %s", req.Method, domain, originalURL.String(), err)
-			proxy.Client = nil
+			log.Printf("%15s %5s %s%s: Error: %s", remoteIP, req.Method, domain, originalURL.String(), err)
 		} else {
 			break
 		}
@@ -74,27 +72,26 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	io.Copy(rw, resp.Body)
-	log.Printf("%5s %s%s: %.3fms\n", req.Method, domain, originalURL.String(), time.Now().Sub(start).Seconds()*1000)
+	log.Printf("%15s %5s %s%s: %.3fms\n", remoteIP, req.Method, domain, originalURL.String(), time.Now().Sub(start).Seconds()*1000)
 }
 
 func ping() {
 	for domain, proxy := range proxies {
-		if proxy.Client == nil {
-			continue
-		}
-		ping, err := spdy.PingServer(*proxy.Client, fmt.Sprintf("https://%s", proxy.OriginHost))
+		ping, err := spdy.PingServer(*client, fmt.Sprintf("https://%s", proxy.OriginHost))
 		if err != nil {
 			log.Printf("Error pinging %s: %s", domain, err)
-			proxy.Client = nil
 		} else {
 			_, ok := <-ping
 			if !ok {
 				log.Printf("Error pinging %s: %s", domain, err)
-				proxy.Client = nil
 			}
 		}
 
 	}
+}
+
+func healthcheck(rw http.ResponseWriter, req *http.Request) {
+	rw.Write([]byte("ok"))
 }
 
 func main() {
@@ -105,6 +102,12 @@ func main() {
 	keepalive := flag.Bool("keepalive", true, "use pings to keep the spdy clients alive")
 	flag.Parse()
 
+	transport := spdy.NewTransport(false)
+	transport.ResponseHeaderTimeout = time.Second * 5
+
+	client = &http.Client{
+		Transport: transport,
+	}
 	proxies = make(map[string]*Proxy)
 
 	for _, domainDefinition := range flag.Args() {
@@ -122,6 +125,7 @@ func main() {
 		log.Fatal("You must supply at least one definition with domain.com:origin-ip")
 	}
 
+	http.HandleFunc("/__healthcheck", healthcheck)
 	http.HandleFunc("/", handler)
 
 	if *keepalive {
@@ -135,7 +139,12 @@ func main() {
 	if *bind != "" {
 		log.Printf("Listening to HTTP on %s", *bind)
 		go func() {
-			err := http.ListenAndServe(*bind, nil)
+			srv := http.Server{
+				Addr:         *bind,
+				ReadTimeout:  time.Second * 5,
+				WriteTimeout: time.Second * 5,
+			}
+			err := srv.ListenAndServe()
 			if err != nil {
 				log.Fatal(err)
 			}
