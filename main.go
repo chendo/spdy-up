@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"errors"
 	"flag"
 	"fmt"
@@ -74,8 +75,6 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	defer resp.Body.Close()
-
 	for k, vs := range resp.Header {
 		if k[0:1] == ":" {
 			continue
@@ -84,9 +83,17 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 			rw.Header().Add(k, v)
 		}
 	}
+	body := resp.Body
+	defer resp.Body.Close()
+	// response comes back as gzip even though client never requested it
+	if strings.Join(resp.Header["Content-Encoding"], "") == "gzip" && !strings.Contains(strings.Join(req.Header["Accept-Encoding"], " "), "gzip") {
+		body, err = gzip.NewReader(body)
+		resp.Header["Content-Encoding"] = []string{}
+		defer body.Close()
+	}
 	rw.WriteHeader(resp.StatusCode)
 
-	io.Copy(rw, resp.Body)
+	io.Copy(rw, body)
 	log.Printf("%15s [%d] %5s %s%s: %.3fms\n", remoteIP, resp.StatusCode, req.Method, domain, originalURL.String(), time.Now().Sub(start).Seconds()*1000)
 }
 
@@ -119,6 +126,7 @@ func main() {
 
 	transport := spdy.NewTransport(false)
 	transport.ResponseHeaderTimeout = time.Second * 5
+	transport.DisableCompression = true // does nothing, pretty sure it's a bug
 
 	client = &http.Client{
 		Transport: transport,
