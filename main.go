@@ -69,7 +69,7 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if err != nil {
-		rw.WriteHeader(504)
+		rw.WriteHeader(502)
 		rw.Write([]byte("Could not reach origin\n"))
 		return
 	}
@@ -77,6 +77,9 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	defer resp.Body.Close()
 
 	for k, vs := range resp.Header {
+		if k[0:1] == ":" {
+			continue
+		}
 		for _, v := range vs {
 			rw.Header().Add(k, v)
 		}
