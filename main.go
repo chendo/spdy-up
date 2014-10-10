@@ -122,6 +122,7 @@ func main() {
 	cert := flag.String("cert", "server.crt", "ssl certificate")
 	key := flag.String("key", "server.key", "ssl key")
 	keepalive := flag.Bool("keepalive", true, "use pings to keep the spdy clients alive")
+	noSpdyClient := flag.Bool("no-spdy-client", false, "disable spdy client")
 	flag.Parse()
 
 	transport := spdy.NewTransport(false)
@@ -134,6 +135,11 @@ func main() {
 			return redirectErr
 		},
 	}
+
+	if *noSpdyClient {
+		client.Transport = nil
+	}
+
 	proxies = make(map[string]*Proxy)
 
 	for _, domainDefinition := range flag.Args() {
