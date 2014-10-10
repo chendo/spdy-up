@@ -22,6 +22,7 @@ type Proxy struct {
 var (
 	proxies     map[string]*Proxy
 	client      *http.Client
+	secret      string
 	redirectErr error
 )
 
@@ -48,6 +49,9 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	req.URL, _ = url.Parse(fmt.Sprintf("https://%s%s", proxy.OriginHost, req.RequestURI))
 	req.RequestURI = "" // http.Client requests cannot have RequestURI
 	req.Host = proxy.Domain
+	req.Header["X-Forwarded-For"] = []string{remoteIP}
+	req.Header["SPDY-Up-Connecting-IP"] = []string{remoteIP}
+	req.Header["SPDY-Up-Secret"] = []string{secret}
 
 	start := time.Now()
 	var (
@@ -123,6 +127,7 @@ func main() {
 	key := flag.String("key", "server.key", "ssl key")
 	keepalive := flag.Bool("keepalive", true, "use pings to keep the spdy clients alive")
 	noSpdyClient := flag.Bool("no-spdy-client", false, "disable spdy client")
+	flag.StringVar(&secret, "secret", "secret", "secret token sent to origin to authenticate source IP")
 	flag.Parse()
 
 	transport := spdy.NewTransport(false)
