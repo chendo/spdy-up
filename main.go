@@ -32,15 +32,32 @@ func init() {
 
 func handler(rw http.ResponseWriter, req *http.Request) {
 	proxy, ok := proxies[req.Host]
+
 	originalURL := req.URL
 	s := strings.SplitN(req.RemoteAddr, ":", 2)
 	remoteIP := s[0]
+	_, isSpdyClient := rw.(spdy.Stream)
+	var (
+		info  string
+		proto string
+	)
+	if isSpdyClient {
+		info = "S"
+	} else {
+		info = " "
+	}
+
+	if req.TLS != nil {
+		proto = "https"
+	} else {
+		proto = "http"
+	}
 
 	if !ok {
 		// No proxy mapping
 		rw.WriteHeader(400)
 		rw.Write([]byte("Bad Request\n"))
-		log.Printf("%15s [---] %5s %s%s: Error: Invalid domain", remoteIP, req.Method, req.Host, originalURL.String())
+		log.Printf("%15s %s[---] %5s %s://%s%s: Error: Invalid domain", remoteIP, info, req.Method, proto, req.Host, originalURL.String())
 		return
 	}
 
@@ -67,7 +84,7 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 				err = nil
 				break
 			}
-			log.Printf("%15s [---] %5s %s%s: Error: %+v", remoteIP, req.Method, domain, originalURL.String(), urlErr)
+			log.Printf("%15s %s[---] %5s %s://%s%s: Error: %+v", remoteIP, info, req.Method, proto, domain, originalURL.String(), urlErr)
 		} else {
 			break
 		}
@@ -98,7 +115,7 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	rw.WriteHeader(resp.StatusCode)
 
 	io.Copy(rw, body)
-	log.Printf("%15s [%d] %5s %s%s: %.3fms\n", remoteIP, resp.StatusCode, req.Method, domain, originalURL.String(), time.Now().Sub(start).Seconds()*1000)
+	log.Printf("%15s %s[%d] %5s %s://%s%s: %.3fms\n", remoteIP, info, resp.StatusCode, req.Method, proto, domain, originalURL.String(), time.Now().Sub(start).Seconds()*1000)
 }
 
 func ping() {
