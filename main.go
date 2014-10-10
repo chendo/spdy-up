@@ -95,8 +95,6 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	defer resp.Body.Close()
-
 	if err != nil {
 		rw.WriteHeader(502)
 		rw.Write([]byte("Could not reach origin\n"))
@@ -112,6 +110,7 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 	body := resp.Body
+	defer resp.Body.Close()
 	// response comes back as gzip even though client never requested it
 	if strings.Join(resp.Header["Content-Encoding"], "") == "gzip" && !strings.Contains(strings.Join(req.Header["Accept-Encoding"], " "), "gzip") {
 		body, err = gzip.NewReader(body)
