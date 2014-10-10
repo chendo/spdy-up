@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/SlyMarbo/spdy"
@@ -18,25 +19,30 @@ type Proxy struct {
 }
 
 var (
-	proxies map[string]*Proxy
-	client  *http.Client
+	proxies     map[string]*Proxy
+	client      *http.Client
+	redirectErr error
 )
+
+func init() {
+	redirectErr = errors.New("Redirect")
+}
 
 func handler(rw http.ResponseWriter, req *http.Request) {
 	proxy, ok := proxies[req.Host]
-	domain := proxy.Domain
 	originalURL := req.URL
 	s := strings.SplitN(req.RemoteAddr, ":", 2)
 	remoteIP := s[0]
 
-	log.Printf("%15s %5s %s%s: Start\n", remoteIP, req.Method, domain, originalURL.String())
 	if !ok {
 		// No proxy mapping
 		rw.WriteHeader(400)
-		rw.Write([]byte("Bad Request"))
-		log.Printf("%15s %5s %s%s: Error: Invalid domain", remoteIP, req.Method, domain, originalURL.String())
+		rw.Write([]byte("Bad Request\n"))
+		log.Printf("%15s [---] %5s %s%s: Error: Invalid domain", remoteIP, req.Method, req.Host, originalURL.String())
 		return
 	}
+
+	domain := proxy.Domain
 
 	req.URL, _ = url.Parse(fmt.Sprintf("https://%s%s", proxy.OriginHost, req.RequestURI))
 	req.RequestURI = "" // http.Client requests cannot have RequestURI
@@ -50,29 +56,35 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	for tries := 0; tries < 2; tries++ {
 		resp, err = client.Do(req)
 		if err != nil {
-			log.Printf("%15s %5s %s%s: Error: %s", remoteIP, req.Method, domain, originalURL.String(), err)
+			urlErr, ok := err.(*url.Error)
+			if ok && urlErr.Err == redirectErr {
+				// redirect should go pass through
+				err = nil
+				break
+			}
+			log.Printf("%15s [---] %5s %s%s: Error: %+v", remoteIP, req.Method, domain, originalURL.String(), urlErr)
 		} else {
 			break
 		}
 	}
 
 	if err != nil {
-		rw.WriteHeader(500)
-		rw.Write([]byte("Could not reach origin"))
+		rw.WriteHeader(504)
+		rw.Write([]byte("Could not reach origin\n"))
 		return
 	}
 
 	defer resp.Body.Close()
 
-	rw.WriteHeader(resp.StatusCode)
 	for k, vs := range resp.Header {
 		for _, v := range vs {
 			rw.Header().Add(k, v)
 		}
 	}
+	rw.WriteHeader(resp.StatusCode)
 
 	io.Copy(rw, resp.Body)
-	log.Printf("%15s %5s %s%s: %.3fms\n", remoteIP, req.Method, domain, originalURL.String(), time.Now().Sub(start).Seconds()*1000)
+	log.Printf("%15s [%d] %5s %s%s: %.3fms\n", remoteIP, resp.StatusCode, req.Method, domain, originalURL.String(), time.Now().Sub(start).Seconds()*1000)
 }
 
 func ping() {
@@ -107,6 +119,9 @@ func main() {
 
 	client = &http.Client{
 		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return redirectErr
+		},
 	}
 	proxies = make(map[string]*Proxy)
 
