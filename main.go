@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -28,6 +29,7 @@ var (
 
 func init() {
 	redirectErr = errors.New("Redirect")
+	runtime.GOMAXPROCS(runtime.NumCPU())
 }
 
 func handler(rw http.ResponseWriter, req *http.Request) {
