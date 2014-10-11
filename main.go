@@ -92,6 +92,8 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 				break
 			}
 			log.Printf("%15s %s[---] %5s %s: Error: %+v", remoteIP, info, req.Method, requestURL, urlErr)
+			client = nil
+			initClient()
 		} else {
 			break
 		}
@@ -144,16 +146,7 @@ func healthcheck(rw http.ResponseWriter, req *http.Request) {
 	rw.Write([]byte("ok"))
 }
 
-func main() {
-	bind := flag.String("bind", ":8000", "bind address for http")
-	sslbind := flag.String("sslbind", ":44300", "bind address for https")
-	cert := flag.String("cert", "server.crt", "ssl certificate")
-	key := flag.String("key", "server.key", "ssl key")
-	keepalive := flag.Bool("keepalive", true, "use pings to keep the spdy clients alive")
-	noSpdyClient := flag.Bool("no-spdy-client", false, "disable spdy client")
-	flag.StringVar(&secret, "secret", "secret", "secret token sent to origin to authenticate source IP")
-	flag.Parse()
-
+func initClient() {
 	transport := spdy.NewTransport(false)
 	transport.ResponseHeaderTimeout = time.Second * 5
 	transport.DisableCompression = true // does nothing, pretty sure it's a bug
@@ -164,10 +157,18 @@ func main() {
 			return redirectErr
 		},
 	}
+}
 
-	if *noSpdyClient {
-		client.Transport = nil
-	}
+func main() {
+	bind := flag.String("bind", ":8000", "bind address for http")
+	sslbind := flag.String("sslbind", ":44300", "bind address for https")
+	cert := flag.String("cert", "server.crt", "ssl certificate")
+	key := flag.String("key", "server.key", "ssl key")
+	keepalive := flag.Bool("keepalive", true, "use pings to keep the spdy clients alive")
+	flag.StringVar(&secret, "secret", "secret", "secret token sent to origin to authenticate source IP")
+	flag.Parse()
+
+	initClient()
 
 	proxies = make(map[string]*Proxy)
 
